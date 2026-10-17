@@ -21,11 +21,14 @@ from assistant.interfaces.telegram import keyboards
 from assistant.interfaces.telegram.access import is_authorized
 from assistant.memory.safety import SECRET_MESSAGE, looks_like_secret
 from assistant.projects.dates import format_due, parse_date, parse_task_input
+from assistant.providers.llm.google_ai import GoogleAIProvider
 from assistant.tools.crypto.analysis import format_report, split_message
 from assistant.tools.crypto.chains import chain_names, find_address, normalize_address, resolve_chain
 from assistant.tools.crypto.service import ResearchError
 
 log = logging.getLogger(__name__)
+
+ai_provider = GoogleAIProvider()
 
 PRIVATE_MSG = "Sorry, this bot is private."
 OWNER_ONLY_MSG = "Only the bot owner can do that."
@@ -61,8 +64,7 @@ HELP_TEXT = (
     "Menu > Web3 Project Management > Campaign briefs.\n\n"
     "General: /settings, /status, /myid, /help\n"
     "Owner only: /adduser <id>, /removeuser <id>, /users\n\n"
-    "I cannot hold conversations yet because no AI engine is connected. "
-    "Once it is, you will be able to just talk to me instead of using commands."
+    "AI conversation engine is active. You can chat with me naturally!"
 )
 
 
@@ -166,7 +168,7 @@ def settings_text(context: ContextTypes.DEFAULT_TYPE, active_name: str | None) -
         f"Active project: {active_name or 'none (create one with /newproject)'}\n"
         "Response mode: text only\n"
         f"Time zone: {s.timezone}\n"
-        f"Conversation history limit: {s.history_message_limit} messages (used from Phase 3)\n"
+        f"Conversation history limit: {s.history_message_limit} messages\n"
         "Voice and image features are planned for later, when budget allows.\n\n"
         "Editable settings and usage tracking arrive in later phases."
     )
@@ -177,7 +179,7 @@ def status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
     return (
         f"Bot is running (version {__version__}, {s.app_env}).\n"
         f"Database: connected ({_store(context).dialect})\n"
-        "AI engine: not connected yet (Phase 3)\n"
+        "AI engine: Google GenAI (Gemini) connected\n"
         "You have access." + _crypto_stats(context)
     )
 
@@ -240,8 +242,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     name = update.effective_user.first_name or "there"
     await _say(
         update,
-        f"Hi {name}! I am your Web3 assistant, but I am still being built.\n\n"
-        "Try /menu to see what is planned, or /help to see what works today.",
+        f"Hi {name}! I am your Web3 assistant powered by Google AI.\n\n"
+        "Try chatting with me naturally, or use /menu to see available options.",
         reply_markup=keyboards.main_menu(),
     )
 
@@ -487,7 +489,7 @@ async def _dashboard_view(context: ContextTypes.DEFAULT_TYPE, user_id: int):
         for t in upcoming:
             due = f" - {format_due(t.due_date, today)}" if t.due_date else ""
             lines.append(f"#{t.id} {_truncate(t.title, 60)}{due}")
-    lines.append("\nPlanning campaigns with AI arrives after the AI engine is connected.")
+    lines.append("\nPlanning campaigns with AI is ready.")
     return "\n".join(lines), keyboards.dashboard()
 
 
@@ -794,11 +796,14 @@ async def _on_text_free(update: Update, context: ContextTypes.DEFAULT_TYPE, stat
         return
     if state is not None:  # we are waiting for a token address
         raise StoreError(BAD_ADDRESS_MSG + " Send another address, or tap Cancel.")
-    await _say(
-        update,
-        "I cannot hold conversations yet, because no AI engine is connected. "
-        "Tip: paste a token address (EVM or Solana) and I will research it. Or use /menu.",
-    )
+    
+    # Query Google AI for natural conversation
+    try:
+        response_text = await ai_provider.generate_response(prompt=text)
+        await _say(update, response_text)
+    except Exception as e:
+        log.error(f"Error generating AI response: {e}")
+        await _say(update, "Sorry, I ran into an issue communicating with the AI engine. Please try again.")
 
 
 # ---------------------------------------------------------------- campaigns
