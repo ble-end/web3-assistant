@@ -1,30 +1,40 @@
+"""Google GenAI (Gemini) provider wrapper.
+
+Handles communication with the Google GenAI SDK for natural conversation.
+"""
+import logging
 import os
 from google import genai
 from google.genai import types
-from loguru import logger
+
+log = logging.getLogger(__name__)
+
 
 class GoogleAIProvider:
-    def __init__(self, model_name: str = "gemini-3.8-flash"):
-        self.model_name = model_name
-        api_key = os.getenv("GEMINI_API_KEY")
+    def __init__(self):
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            logger.warning("GEMINI_API_KEY is not set in environment variables.")
-        self.client = genai.Client(api_key=api_key)
+            log.warning("No Gemini API key found in environment variables.")
+        self.client = genai.Client(api_key=api_key) if api_key else None
+        # Using the requested model
+        self.model_name = "gemini-3.8-flash"
 
-    async def generate_response(self, prompt: str, system_instruction: str = None) -> str:
+    async def generate_response(self, prompt: str) -> str:
+        if not self.client:
+            return "AI provider is not configured (missing API key)."
         try:
-            config = None
-            if system_instruction:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction
-                )
+            # Configure generation parameters to keep responses concise and fast
+            config = types.GenerateContentConfig(
+                max_output_tokens=500,
+                temperature=0.7,
+            )
             
-            response = self.client.models.generate_content(
+            response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=config
+                config=config,
             )
-            return response.text
+            return response.text if response and response.text else "I received an empty response."
         except Exception as e:
-            logger.error(f"Error generating response from Google AI: {e}")
-            raise e
+            log.error(f"Error calling Gemini API: {e}")
+            raise
