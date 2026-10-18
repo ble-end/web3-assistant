@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 ai_provider = GoogleAIProvider()
 
-PRIVATE_MSG = "Sorry, this bot is private."
+PRIVATE_MSG = "Sorry, this bot is private. Contact the Admin "
 OWNER_ONLY_MSG = "Only the bot owner can do that."
 NO_ACTIVE_MSG = "You have no active project. Create one with /newproject <name>."
 UNKNOWN_BUTTON_MSG = "Sorry, I did not recognise that button."
@@ -91,6 +91,8 @@ def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 async def _say(update: Update, text: str, reply_markup=None) -> None:
     """Reply to a message, or show a popup when the user tapped a button."""
+    if text:
+        text = text.replace("**", "").replace("*", "")
     query = update.callback_query
     if query is not None:
         await query.answer(text, show_alert=True)
@@ -132,7 +134,6 @@ def admin_only(fn):
     @functools.wraps(fn)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_admin(update, context):
-            # Unknown people get the same refusal as everywhere else.
             if not await _gate(update, context):
                 return
             await _say(update, OWNER_ONLY_MSG)
@@ -257,7 +258,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _say(
         update,
-        "Main menu. Items marked \U0001f51c are not built yet. Tap one to see when it arrives.",
+        "Main menu. Tap an option below to get started.",
         reply_markup=keyboards.main_menu(),
     )
 
@@ -274,7 +275,6 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Open to everyone on purpose: it only shows the sender their own ID."""
     user = update.effective_user
     if user is None:
         return
@@ -428,7 +428,7 @@ async def deleteproject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def _today(context: ContextTypes.DEFAULT_TYPE) -> date:
-    override = context.bot_data.get("today")  # lets tests fix the date
+    override = context.bot_data.get("today")
     if override:
         return override
     return datetime.now(ZoneInfo(_settings(context).timezone)).date()
@@ -489,7 +489,6 @@ async def _dashboard_view(context: ContextTypes.DEFAULT_TYPE, user_id: int):
         for t in upcoming:
             due = f" - {format_due(t.due_date, today)}" if t.due_date else ""
             lines.append(f"#{t.id} {_truncate(t.title, 60)}{due}")
-    lines.append("\nPlanning campaigns with AI is ready.")
     return "\n".join(lines), keyboards.dashboard()
 
 
@@ -548,7 +547,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @member
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Plain messages. Right now they only answer a question the bot just asked (like a task's text)."""
     state = _get_await(context)
     if state is None or state["kind"] == "token":
         await _on_text_free(update, context, state)
@@ -558,7 +556,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store = _store(context)
     text = (update.effective_message.text or "").strip()
     if looks_like_secret(text):
-        raise StoreError(SECRET_MESSAGE)  # the question stays open so they can try again
+        raise StoreError(SECRET_MESSAGE)
     today = _today(context)
     kind = state["kind"]
 
@@ -608,7 +606,6 @@ PROMPTS = {
 
 
 async def _task_action(context: ContextTypes.DEFAULT_TYPE, uid: int, key: str, num: int | None):
-    """Returns (text, keyboard, popup message or None) for a task button."""
     store = _store(context)
     unknown = (UNKNOWN_BUTTON_MSG, keyboards.back_to_menu(), None)
 
@@ -636,7 +633,7 @@ async def _task_action(context: ContextTypes.DEFAULT_TYPE, uid: int, key: str, n
         await _run(store.set_task_status, uid, num, "done" if key == "done" else "open")
         return (*await _task_view(context, uid, num), "Marked as done" if key == "done" else "Reopened")
     if key in PROMPTS:
-        await _run(store.get_task, uid, num)  # confirms it is theirs
+        await _run(store.get_task, uid, num)
         _set_await(context, key, task_id=num)
         return PROMPTS[key], keyboards.cancel_prompt(), None
     if key == "del":
@@ -658,7 +655,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     uid = update.effective_user.id
     store = _store(context)
-    context.user_data.pop("await", None)  # tapping any button cancels a pending question
+    context.user_data.pop("await", None)
     kind, _, rest = (query.data or "").partition(":")
     key, _, arg = rest.partition(":")
     num = int(arg) if arg.isdigit() else None
@@ -672,7 +669,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if kind == "menu" and key == "main":
         text, markup = (
-            "Main menu. Items marked \U0001f51c are not built yet.",
+            "Main menu.",
             keyboards.main_menu(),
         )
     elif kind == "menu" and key == "help":
@@ -703,18 +700,17 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await query.edit_message_text(text, reply_markup=markup)
     except BadRequest:
-        pass  # message was already showing this exact content
+        pass
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the problem (secrets are redacted by the logger) and keep the bot alive."""
     log.error("Unhandled error while processing an update", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message is not None:
         try:
             await update.effective_message.reply_text(
                 "Something went wrong on my side. Please try again in a moment."
             )
-        except Exception:  # never let the error handler itself crash
+        except Exception:
             log.warning("Could not send the error message to the user")
 
 
@@ -782,7 +778,6 @@ async def token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _on_text_free(update: Update, context: ContextTypes.DEFAULT_TYPE, state) -> None:
-    """A plain message when no task or campaign question is open."""
     text = (update.effective_message.text or "").strip()
     if looks_like_secret(text):
         raise StoreError(
@@ -794,10 +789,9 @@ async def _on_text_free(update: Update, context: ContextTypes.DEFAULT_TYPE, stat
         context.user_data.pop("await", None)
         await _do_lookup(update, context, address)
         return
-    if state is not None:  # we are waiting for a token address
+    if state is not None:
         raise StoreError(BAD_ADDRESS_MSG + " Send another address, or tap Cancel.")
     
-    # Query Google AI for natural conversation
     try:
         response_text = await ai_provider.generate_response(prompt=text)
         await _say(update, response_text)

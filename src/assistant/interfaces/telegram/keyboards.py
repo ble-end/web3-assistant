@@ -1,18 +1,12 @@
-"""Menu layout. Features that are not built yet are clearly marked, never shown as ready."""
+"""Menu layout. Features that are not built yet are removed."""
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# (key, label, ready, phase when it arrives)
+# Active menu items only
 MENU_ITEMS = [
-    ("chat", "AI Chat", False, "Phase 3"),
-    ("crypto", "Crypto Analysis", True, ""),
-    ("pm", "Web3 Project Management", True, ""),
-    ("growth", "Growth and Marketing", False, "Phase 3"),
-    ("content", "Content Creation", False, "Phase 3"),
-    ("vision", "Image Analysis", False, "later, when budget allows"),
-    ("imagegen", "Image Generation", False, "later, when budget allows"),
-    ("voice", "Voice Assistant", False, "later, when budget allows"),
-    ("memory", "Project Memory", True, ""),
-    ("settings", "Settings and Usage", True, ""),
+    ("crypto", "Crypto Analysis", True),
+    ("pm", "Web3 Project Management", True),
+    ("memory", "Project Memory", True),
+    ("settings", "Settings and Usage", True),
 ]
 
 BACK = "\u2b05\ufe0f Back to menu"
@@ -20,11 +14,8 @@ BACK = "\u2b05\ufe0f Back to menu"
 
 def main_menu() -> InlineKeyboardMarkup:
     rows = []
-    for key, label, ready, _phase in MENU_ITEMS:
-        if ready:
-            rows.append([InlineKeyboardButton(f"\u2705 {label}", callback_data=f"menu:{key}")])
-        else:
-            rows.append([InlineKeyboardButton(f"\U0001f51c {label}", callback_data=f"soon:{key}")])
+    for key, label, ready in MENU_ITEMS:
+        rows.append([InlineKeyboardButton(f"\u2705 {label}", callback_data=f"menu:{key}")])
     rows.append([InlineKeyboardButton("\u2753 Help", callback_data="menu:help")])
     return InlineKeyboardMarkup(rows)
 
@@ -53,15 +44,6 @@ def confirm_delete(project_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
-
-
-def phase_for(key: str) -> str | None:
-    for item_key, label, ready, phase in MENU_ITEMS:
-        if item_key == key and not ready:
-            if phase.startswith("Phase"):
-                return f"{label} is not built yet. It arrives in {phase} of the plan."
-            return f"{label} is not built yet. It is planned for {phase}."
-    return None
 
 
 def _btn(text: str, data: str) -> InlineKeyboardButton:
